@@ -1,0 +1,106 @@
+# =============================================================
+# docker-compose.yml — Orquestador de servicios
+#
+# Levanta tres contenedores que forman la aplicación completa:
+#
+#   ┌─────────────────────────────────────────────────────┐
+#   │  [browser] → :80 (client/nginx)                     │
+#   │  [browser] → :3000 (server/express)                 │
+#   │               server → :5432 (postgres) [interno]   │
+#   └─────────────────────────────────────────────────────┘
+#
+# Uso:
+#   1. cp .env.example .env   ← rellena tus valores reales
+#   2. docker compose up --build
+# =============================================================
+
+services:
+
+  # -----------------------------------------------------------
+  # SERVICIO 1: Base de datos PostgreSQL
+  # Usa la imagen oficial de Postgres en su variante Alpine.
+  # Los datos persisten en un volumen Docker (postgres_data)
+  # para que no se pierdan al reiniciar el contenedor.
+  # -----------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    container_name: practica_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: practica_final
+    ports:
+      # Expone Postgres en el puerto 5433 del host para evitar conflicto
+      # con el PostgreSQL local que ya corre en el 5432.
+      # Los contenedores entre sí siguen usando el 5432 interno.
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Docker esperará a que Postgres esté listo antes de
+      # arrancar el servidor, evitando errores de conexión.
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # -----------------------------------------------------------
+  # SERVICIO 2: Servidor Express + Prisma
+  # Construye la imagen desde ./server/Dockerfile.
+  # El entrypoint aplica el schema de Prisma y luego arranca.
+  # -----------------------------------------------------------
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: practica_server
+    ports:
+      - "3000:3000"
+    environment:
+      # URL de conexión a la BD. "postgres" es el nombre del
+      # servicio de arriba → Docker Compose lo resuelve como host.
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/practica_final
+      PORT: 3000
+      # Estas variables vienen del fichero .env de la raíz
+      JWT_SECRET: ${JWT_SECRET}
+      S_ENCINAS_API_USERNAME: ${S_ENCINAS_API_USERNAME}
+      S_ENCINAS_API_PASSWORD: ${S_ENCINAS_API_PASSWORD}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      UNSPLASH_API_KEY: ${UNSPLASH_API_KEY}
+    depends_on:
+      postgres:
+        # El servidor no arrancará hasta que el healthcheck de
+        # Postgres devuelva éxito (base de datos lista).
+        condition: service_healthy
+    restart: unless-stopped
+
+  # -----------------------------------------------------------
+  # SERVICIO 3: Cliente React servido con nginx
+  # Construye la imagen desde ./client/Dockerfile (multi-stage).
+  # La build de Vite incrusta la URL del API en el bundle.
+  # -----------------------------------------------------------
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        # Vite necesita la URL del API en tiempo de compilación.
+        # Como el cliente corre en el navegador del usuario,
+        # la URL debe ser accesible desde fuera de Docker.
+        VITE_API_URL: http://localhost:3000
+    container_name: practica_client
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+# -----------------------------------------------------------
+# VOLÚMENES — Almacenamiento persistente gestionado por Docker
+# Los datos de Postgres sobreviven a reinicios y recreaciones
+# del contenedor. Para resetear la BD: docker compose down -v
+# -----------------------------------------------------------
+volumes:
+  postgres_data:
