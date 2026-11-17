@@ -1,0 +1,136 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model empresa {
+  id           String  @id @default(dbgenerated("gen_random_uuid()"))
+  cif          String  @db.VarChar(9) @unique
+  persona      String  @db.VarChar(255)
+  correo       String  @db.VarChar(255) @unique
+  telefono     String  @db.VarChar(15)
+  razon_social String
+  domicilio    String
+  contraseña  String  @db.VarChar(255)
+  verificada   Boolean @default(false)
+  restringida  Boolean @default(false)
+
+  festivales festival[]
+}
+
+model festival {
+  id          String          @id @db.VarChar(255)
+  nombre      String          @db.VarChar(255)
+  estado      estado_festival
+  ubicacion   String
+  aforo       Int
+  descripcion String
+  f_inicio    DateTime        @db.Date
+  f_fin       DateTime        @db.Date
+  imagen      String?
+  empresa     String
+
+  empresaRef  empresa           @relation(fields: [empresa], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "fk_festival_empresa")
+  actuaciones actuar_festival[]
+  tiposAbono  tipo_abono[]
+  abonos      abono_cliente[]
+}
+
+model artista {
+  id     String  @id @db.VarChar(255)
+  nombre String  @db.VarChar(255)
+  imagen String?
+
+  actuaciones actuar_festival[]
+}
+
+model actuar_festival {
+  festival String @db.VarChar(255)
+  artista  String @db.VarChar(255)
+
+  festivalRef festival @relation(fields: [festival], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "fk_actuar_festival_festival")
+  artistaRef  artista  @relation(fields: [artista], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "fk_actuar_festival_artista")
+
+  @@id([festival, artista])
+}
+
+model tipo_abono {
+  nombre   String  @db.VarChar(255)
+  precio   Decimal @db.Decimal(10, 2)
+  stock    Int
+  festival String  @db.VarChar(255)
+
+  festivalRef festival        @relation(fields: [festival], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "fk_tipo_abono_festival")
+  abonos      abono_cliente[]
+
+  @@id([nombre, festival])
+}
+
+model cliente {
+  id               String   @id @default(dbgenerated("gen_random_uuid()"))
+  correo           String   @db.VarChar(255) @unique
+  nombre           String   @db.VarChar(255)
+  apellidos        String   @db.VarChar(255)
+  dni              String   @db.VarChar(9)
+  fecha_nacimiento DateTime @db.Date
+  telefono         String   @db.VarChar(15)
+  contraseña      String   @db.VarChar(255)
+
+  abonos abono_cliente[]
+}
+
+model abono_cliente {
+  id         String   @db.VarChar(255)
+  saldo      Decimal  @db.Decimal(10, 2)
+  timestamp  DateTime @default(now()) @db.Timestamp(6)
+  tipo_abono String   @db.VarChar(255)
+  cliente    String
+  festival   String   @db.VarChar(255)
+  estado     Boolean  @default(true)
+
+  tipoAbonoRef tipo_abono @relation(fields: [tipo_abono, festival], references: [nombre, festival], onDelete: Cascade, onUpdate: Cascade, map: "fk_abono_cliente_tipo_abono")
+  clienteRef   cliente    @relation(fields: [cliente], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "fk_abono_cliente_cliente")
+  festivalRef  festival   @relation(fields: [festival], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "fk_abono_cliente_festival")
+
+  transacciones realizar_transaccion[]
+
+  @@id([id, cliente, festival, tipo_abono])
+}
+
+model transaccion {
+  id          String   @id @db.VarChar(255)
+  cantidad    Decimal  @db.Decimal(10, 2)
+  moneda      String   @db.VarChar(3)
+  propietario String
+  timestamp   DateTime @default(now()) @db.Timestamp(6)
+
+  realizaciones realizar_transaccion[]
+}
+
+model realizar_transaccion {
+  abono            String           @db.VarChar(255)
+  cliente          String
+  festival         String           @db.VarChar(255)
+  tipo_abono       String           @db.VarChar(255)
+  transaccion      String           @db.VarChar(255)
+  tipo_transaccion tipo_transaccion
+
+  abonoClienteRef abono_cliente @relation(fields: [abono, cliente, festival, tipo_abono], references: [id, cliente, festival, tipo_abono], onDelete: Cascade, onUpdate: Cascade, map: "fk_realizar_transaccion_abono_cliente")
+  transaccionRef  transaccion   @relation(fields: [transaccion], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "fk_realizar_transaccion_transaccion")
+
+  @@id([abono, cliente, festival, tipo_abono, transaccion])
+}
+
+enum estado_festival {
+  Activo
+  Cancelado
+}
+
+enum tipo_transaccion {
+  Compra
+  Recarga
+}
